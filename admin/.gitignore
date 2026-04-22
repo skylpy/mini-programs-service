@@ -1,0 +1,93 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+################################
+# 1. 环境变量（最重要）
+################################
+.env
+.env.*
+!.env.example
+
+################################
+# 2. Node 依赖
+################################
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+################################
+# 3. 日志文件
+################################
+logs/
+*.log
+
+################################
+# 4. MongoDB / 运行时数据（你这次报错的元凶）
+################################
+runtime/
+mongodb/
+data/
+*.wt
+*.lock
+WiredTiger*
+journal/
+
+################################
+# 5. 上传文件（避免占满仓库）
+################################
+uploads/
+tmp/
+temp/
+
+################################
+# 6. 构建产物
+################################
+dist/
+build/
+.cache/
+.next/
+
+################################
+# 7. 前端环境（uniapp / vite）
+################################
+.vite/
+*.local
+
+################################
+# 8. IDE / 系统文件
+################################
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+################################
+# 9. 服务器相关（可选）
+################################
+*.pid
+*.seed
+*.tgz

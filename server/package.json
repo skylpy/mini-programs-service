@@ -1,0 +1,37 @@
+{
+  "name": "mini-program-doc-converter-server",
+  "version": "1.0.0",
+  "description": "Backend service for a document format conversion WeChat mini program.",
+  "main": "app.js",
+  "scripts": {
+    "dev": "NODE_ENV=development nodemon app.js",
+    "start": "NODE_ENV=production node app.js",
+    "seed": "NODE_ENV=development node seed/seedData.js",
+    "seed:prod": "NODE_ENV=production node seed/seedData.js"
+  },
+  "keywords": [
+    "express",
+    "mongodb",
+    "mongoose",
+    "jwt",
+    "wechat-mini-program"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "ali-oss": "^6.23.0",
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "docx": "^9.1.1",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.7.3",
+    "morgan": "^1.10.0",
+    "multer": "^1.4.5-lts.1",
+    "pdf-parse": "^1.1.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.7"
+  }
+}

@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+
+# 启用严格模式，确保脚本在异常时尽快失败。
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SERVER_DIR="$ROOT_DIR/server"
+ADMIN_DIR="$ROOT_DIR/admin"
+RUN_DIR="$ROOT_DIR/.run"
+RUNTIME_DIR="$ROOT_DIR/.runtime"
+MONGO_RUNTIME_DIR="$RUNTIME_DIR/mongodb"
+MONGO_DBPATH="$MONGO_RUNTIME_DIR/data"
+SEED_MARKER="$MONGO_RUNTIME_DIR/.seeded"
+SERVER_LOG="$RUN_DIR/server.log"
+ADMIN_LOG="$RUN_DIR/admin.log"
+MONGO_LOG="$RUN_DIR/mongodb.log"
+
+# 准备运行时日志目录和 MongoDB 数据目录。
+mkdir -p "$RUN_DIR" "$MONGO_DBPATH"
+
+# 函数：read_env_value，负责脚本中的对应步骤。
+read_env_value() {
+  local file="$1"
+  local key="$2"
+
+  if [[ ! -f "$file" ]]; then
+    return 1
+  fi
+
+  grep -E "^${key}=" "$file" | tail -n 1 | cut -d'=' -f2-
+}
+
+# 函数：read_server_port，负责脚本中的对应步骤。
+read_server_port() {
+  local value
+  value="$(read_env_value "$SERVER_DIR/.env" "PORT" 2>/dev/null || true)"
+  echo "${value:-3000}"
+}
+
+# 函数：read_mongo_port，负责脚本中的对应步骤。
+read_mongo_port() {
+  local mongo_uri
+  mongo_uri="$(read_env_value "$SERVER_DIR/.env" "MONGODB_URI" 2>/dev/null || true)"
+
+  if [[ "$mongo_uri" =~ :([0-9]+)/ ]]; then
+    echo "${BASH_REMATCH[1]}"
+    return 0
+  fi
+
+  echo "27017"
+}
+
+# 函数：read_admin_port，负责脚本中的对应步骤。
+read_admin_port() {
+  local value
+  value="$(
+    (
+      grep -E '^[[:space:]]*port:[[:space:]]*[0-9]+' "$ADMIN_DIR/vite.config.js" \
+        | head -n 1 \
+        | sed -E 's/.*port:[[:space:]]*([0-9]+).*/\1/'
+    ) || true
+  )"
+  echo "${value:-5173}"
+}
+
+SERVER_PORT="$(read_server_port)"
+MONGO_PORT="$(read_mongo_port)"
+ADMIN_PORT="$(read_admin_port)"
+ADMIN_URL="http://127.0.0.1:${ADMIN_PORT}/"
+
+# 函数：is_listening，负责脚本中的对应步骤。
+is_listening() {
+  local port="$1"
+  lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1
+}
+
+# 函数：wait_for_port，负责脚本中的对应步骤。
+wait_for_port() {
+  local port="$1"
+  local name="$2"
+  local retries="${3:-30}"
+
+  for ((i = 1; i <= retries; i += 1)); do
+    if is_listening "$port"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Failed to start ${name}. Port ${port} is still unavailable."
+  return 1
+}
+
+# 函数：wait_for_http，负责脚本中的对应步骤。
+wait_for_http() {
+  local url="$1"
+  local name="$2"
+  local retries="${3:-30}"
+
+  for ((i = 1; i <= retries; i += 1)); do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  echo "Failed to start ${name}. ${url} is not responding."
+  return 1
+}
+
+# 函数：require_dir，负责脚本中的对应步骤。
+require_dir() {
+  local path="$1"
+  local label="$2"
+
+  if [[ ! -d "$path" ]]; then
+    echo "${label} not found: ${path}"
+    exit 1
+  fi
+}
+
+# 函数：require_command，负责脚本中的对应步骤。
+require_command() {
+  local command_name="$1"
+
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    echo "Required command not found: ${command_name}"
+    exit 1
+  fi
+}
+
+# 函数：find_mongod，负责脚本中的对应步骤。
+find_mongod() {
+  local candidate
+
+  if command -v mongod >/dev/null 2>&1; then
+    command -v mongod
+    return 0
+  fi
+
+  for candidate in \
+    "$HOME/mongodb/mongodb-macos-x86_64-7.0.31/bin/mongod" \
+    "$HOME/mongodb/mongodb-macos-x86_64-5.0.25/bin/mongod" \
+    "$HOME/.local/mongodb/mongodb-macos-x86_64-7.0.31/bin/mongod" \
+    "$HOME/.cache/mongodb-binaries/mongod-x64-darwin-7.0.14"
+  do
+    if [[ -x "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  done
+
+  if [[ -d "$HOME/mongodb" ]]; then
+    candidate="$(find "$HOME/mongodb" -name mongod -type f 2>/dev/null | head -n 1 || true)"
+    if [[ -n "$candidate" && -x "$candidate" ]]; then
+      echo "$candidate"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+# 函数：start_mongodb，负责脚本中的对应步骤。
+start_mongodb() {
+  local mongod_bin
+
+  if is_listening "$MONGO_PORT"; then
+    echo "MongoDB is already listening on ${MONGO_PORT}."
+    return 0
+  fi
+
+  mongod_bin="$(find_mongod || true)"
+  if [[ -z "$mongod_bin" ]]; then
+    echo "mongod not found. Please install MongoDB or place a mongod binary under \$HOME/mongodb."
+    exit 1
+  fi
+
+  echo "Starting MongoDB on ${MONGO_PORT}..."
+  "$mongod_bin" \
+    --dbpath "$MONGO_DBPATH" \
+    --logpath "$MONGO_LOG" \
+    --fork \
+    --bind_ip 127.0.0.1 \
+    --port "$MONGO_PORT" >/dev/null
+
+  wait_for_port "$MONGO_PORT" "MongoDB"
+
+  if [[ ! -f "$SEED_MARKER" ]]; then
+    echo "Seeding initial data..."
+    (
+      cd "$SERVER_DIR"
+      npm run seed
+    )
+    touch "$SEED_MARKER"
+  fi
+}
+
+# 函数：start_server，负责脚本中的对应步骤。
+start_server() {
+  if is_listening "$SERVER_PORT"; then
+    echo "Backend is already listening on ${SERVER_PORT}."
+    return 0
+  fi
+
+  echo "Starting backend on ${SERVER_PORT}..."
+  (
+    cd "$SERVER_DIR"
+    nohup npm start >>"$SERVER_LOG" 2>&1 &
+    echo $! >"$RUN_DIR/server.pid"
+  )
+
+  if ! wait_for_port "$SERVER_PORT" "backend"; then
+    tail -n 40 "$SERVER_LOG" 2>/dev/null || true
+    exit 1
+  fi
+}
+
+# 函数：start_admin，负责脚本中的对应步骤。
+start_admin() {
+  if is_listening "$ADMIN_PORT"; then
+    echo "Admin UI is already listening on ${ADMIN_PORT}."
+    return 0
+  fi
+
+  echo "Starting admin UI on ${ADMIN_PORT}..."
+  (
+    cd "$ADMIN_DIR"
+    nohup npm run dev >>"$ADMIN_LOG" 2>&1 &
+    echo $! >"$RUN_DIR/admin.pid"
+  )
+
+  if ! wait_for_http "$ADMIN_URL" "admin UI"; then
+    tail -n 40 "$ADMIN_LOG" 2>/dev/null || true
+    exit 1
+  fi
+}
+
+# 函数：open_admin，负责脚本中的对应步骤。
+open_admin() {
+  if command -v open >/dev/null 2>&1; then
+    open "$ADMIN_URL" >/dev/null 2>&1 || true
+  fi
+}
+
+# 函数：print_summary，负责脚本中的对应步骤。
+print_summary() {
+  cat <<EOF
+All services are ready.
+
+MongoDB: 127.0.0.1:${MONGO_PORT}
+Backend: http://127.0.0.1:${SERVER_PORT}
+Admin:   ${ADMIN_URL}
+
+Logs:
+  MongoDB: ${MONGO_LOG}
+  Backend: ${SERVER_LOG}
+  Admin:   ${ADMIN_LOG}
+EOF
+}
+
+require_dir "$SERVER_DIR" "Server directory"
+require_dir "$ADMIN_DIR" "Admin directory"
+# 确认 npm 可用，避免后续启动时失败。
+require_command npm
+# 确认端口探测命令可用。
+require_command lsof
+# 确认 HTTP 健康检查命令可用。
+require_command curl
+
+# 启动或复用 MongoDB 服务。
+start_mongodb
+# 启动或复用 Node 后端服务。
+start_server
+# 启动或复用后台管理前端。
+start_admin
+# 自动在浏览器中打开后台管理地址。
+open_admin
+# 输出本次启动结果和日志位置。
+print_summary
