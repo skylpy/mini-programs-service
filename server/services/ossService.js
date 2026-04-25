@@ -11,7 +11,7 @@ const DEFAULT_OSS_CONFIG = {
   resultDir: 'result',
   sourceDir: 'source',
   signExpire: 900,
-  useSignedUrl: true,
+  useSignedUrl: false,
   accessKeyId: 'YOUR_NEW_ACCESS_KEY_ID',
   accessKeySecret: 'YOUR_NEW_ACCESS_KEY_SECRET'
 };
