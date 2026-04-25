@@ -1,9 +1,15 @@
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const Record = require('../models/Record');
 const AppError = require('../utils/appError');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/response');
+const {
+  downloadByKey,
+  downloadByUrl,
+  getOssPostSignatureData
+} = require('../services/ossService');
 const {
   convertDocument,
   createOssConversionTask,
@@ -16,7 +22,48 @@ const {
 } = require('../services/conversionService');
 const { getAllowedTargets, conversionGroups } = require('../utils/conversionSupport');
 const { sanitizeBaseName } = require('../utils/storage');
-const { getOssPostSignatureData } = require('../services/ossService');
+
+const INLINE_PREVIEW_FORMATS = new Set(['html', 'htm', 'txt', 'csv']);
+
+function splitCsvLine(line = '') {
+  const result = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < line.length; index += 1) {
+    const char = line[index];
+    const nextChar = line[index + 1];
+
+    if (char === '"') {
+      if (inQuotes && nextChar === '"') {
+        current += '"';
+        index += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      result.push(current);
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current);
+  return result;
+}
+
+function parseCsvContent(content = '') {
+  return String(content || '')
+    .replace(/\uFEFF/g, '')
+    .split(/\r?\n/)
+    .filter((line) => line !== '')
+    .map((line) => splitCsvLine(line));
+}
 
 // 方法：getConversionSupport，负责当前接口的业务处理。
 const getConversionSupport = asyncHandler(async (req, res) => {
@@ -221,6 +268,60 @@ const getConversionResult = asyncHandler(async (req, res) => {
   });
 });
 
+// 方法：getConversionPreview，负责返回文本类结果文件的预览内容。
+const getConversionPreview = asyncHandler(async (req, res) => {
+  const record = await Record.findOne({
+    _id: req.params.id,
+    user: req.user._id,
+    isDeleted: false
+  });
+
+  if (!record) {
+    throw new AppError('记录不存在', 404);
+  }
+
+  if (record.status !== 'success') {
+    throw new AppError('文件尚未转换成功，暂时无法预览', 400);
+  }
+
+  const targetFormat = String(record.targetFormat || '').trim().toLowerCase();
+
+  if (!INLINE_PREVIEW_FORMATS.has(targetFormat)) {
+    throw new AppError('当前文件类型不支持页面预览', 400);
+  }
+
+  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'doc-preview-'));
+  const fileName = record.targetFileName || `preview.${targetFormat || 'txt'}`;
+  const previewFilePath = path.join(tempDir, fileName);
+
+  try {
+    if (record.targetKey) {
+      await downloadByKey(record.targetKey, previewFilePath);
+    } else {
+      const resultUrl = getRecordResultUrl(record);
+
+      if (!resultUrl) {
+        throw new AppError('结果文件不存在', 404);
+      }
+
+      await downloadByUrl(resultUrl, previewFilePath);
+    }
+
+    const content = await fs.promises.readFile(previewFilePath, 'utf8');
+
+    return sendSuccess(res, {
+      id: record._id,
+      targetFormat,
+      fileName,
+      previewType: targetFormat === 'html' || targetFormat === 'htm' ? 'html' : 'text',
+      content,
+      rows: targetFormat === 'csv' ? parseCsvContent(content) : []
+    });
+  } finally {
+    await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+});
+
 // 方法：getOssSts，负责返回 OSS 表单直传签名数据。
 const getOssSts = asyncHandler(async (req, res) => {
   const postSignatureData = getOssPostSignatureData(String(req.user._id));
@@ -277,6 +378,7 @@ module.exports = {
   createConversion,
   createConversionByUrl,
   downloadConvertedFile,
+  getConversionPreview,
   getConversionResult,
   getConversionPdfUrl,
   getConversionSupport,

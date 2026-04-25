@@ -6,6 +6,7 @@ const {
   createConversion,
   createConversionByUrl,
   downloadConvertedFile,
+  getConversionPreview,
   getConversionResult,
   getConversionPdfUrl,
   getOssSts
@@ -25,6 +26,8 @@ router.post('/', authMiddleware, uploadMiddleware.single('file'), createConversi
 router.get('/:id/pdf-url', authMiddleware, getConversionPdfUrl);
 // 接口：GET /:id/result，交给对应控制器处理请求。
 router.get('/:id/result', authMiddleware, getConversionResult);
+// 接口：GET /:id/preview，交给对应控制器处理请求。
+router.get('/:id/preview', authMiddleware, getConversionPreview);
 // 接口：GET /:id/download，交给对应控制器处理请求。
 router.get('/:id/download', authMiddleware, downloadConvertedFile);
 
