@@ -26,6 +26,22 @@ const userSchema = new mongoose.Schema(
       required: [true, '密码不能为空'],
       minlength: [6, '密码长度不能少于 6 位']
     },
+    wechatOpenid: {
+      type: String,
+      trim: true,
+      unique: true,
+      sparse: true
+    },
+    wechatUnionid: {
+      type: String,
+      trim: true,
+      sparse: true
+    },
+    loginType: {
+      type: String,
+      enum: ['password', 'wechat-mini-program'],
+      default: 'password'
+    },
     avatar: {
       type: String,
       default: ''
@@ -81,7 +97,9 @@ userSchema.methods.toSafeObject = function toSafeObject(options = {}) {
   const {
     includeRole = false,
     includeStatus = false,
-    includeLastLoginAt = false
+    includeLastLoginAt = false,
+    includeLoginType = false,
+    includeWechatBound = false
   } = options;
 
   const safeObject = {
@@ -104,6 +122,14 @@ userSchema.methods.toSafeObject = function toSafeObject(options = {}) {
 
   if (includeLastLoginAt) {
     safeObject.lastLoginAt = this.lastLoginAt;
+  }
+
+  if (includeLoginType) {
+    safeObject.loginType = this.loginType || 'password';
+  }
+
+  if (includeWechatBound) {
+    safeObject.wechatBound = !!this.wechatOpenid;
   }
 
   return safeObject;

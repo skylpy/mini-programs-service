@@ -1,9 +1,52 @@
+const crypto = require('crypto');
 const User = require('../models/User');
 const AppError = require('../utils/appError');
 const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/response');
 const { generateToken } = require('../utils/jwt');
 const { isValidMobile, isValidEmail } = require('../utils/validators');
+const { getMiniProgramSession, getPhoneNumberByCode } = require('../services/wechatService');
+
+function generateWechatUserPassword() {
+  return crypto.randomBytes(18).toString('hex');
+}
+
+function buildWechatUsername({ nickname, mobile, openid }) {
+  const nicknameValue = String(nickname || '').trim();
+
+  if (nicknameValue) {
+    return nicknameValue;
+  }
+
+  const mobileValue = String(mobile || '').trim();
+
+  if (mobileValue) {
+    return `微信用户${mobileValue.slice(-4)}`;
+  }
+
+  return `微信用户${String(openid || '').slice(-6)}`;
+}
+
+async function issueLoginResponse(res, user, message = '登录成功', extraData = {}) {
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  const token = generateToken({
+    id: user._id,
+    role: user.role || 'user',
+    tokenVersion: user.tokenVersion || 0
+  });
+
+  return sendSuccess(
+    res,
+    {
+      token,
+      user: user.toSafeObject(),
+      ...extraData
+    },
+    message
+  );
+}
 
 // 方法：register，负责当前接口的业务处理。
 const register = asyncHandler(async (req, res) => {
@@ -85,23 +128,100 @@ const login = asyncHandler(async (req, res) => {
     throw new AppError('账号或密码错误', 401);
   }
 
-  user.lastLoginAt = new Date();
-  await user.save();
+  return issueLoginResponse(res, user);
+});
 
-  const token = generateToken({
-    id: user._id,
-    role: user.role || 'user',
-    tokenVersion: user.tokenVersion || 0
+// 方法：wechatMiniProgramLogin，负责当前接口的业务处理。
+const wechatMiniProgramLogin = asyncHandler(async (req, res) => {
+  const { loginCode, phoneCode, nickname, avatar } = req.body;
+
+  if (!loginCode || !String(loginCode).trim()) {
+    throw new AppError('loginCode 必填');
+  }
+
+  if (!phoneCode || !String(phoneCode).trim()) {
+    throw new AppError('phoneCode 必填');
+  }
+
+  const { openid, unionid } = await getMiniProgramSession(loginCode);
+  const phoneInfo = await getPhoneNumberByCode(phoneCode);
+  const mobile = String(phoneInfo.purePhoneNumber || phoneInfo.phoneNumber || '').trim();
+
+  if (!mobile || !isValidMobile(mobile)) {
+    throw new AppError('获取到的微信手机号无效', 400);
+  }
+
+  let user = await User.findOne({
+    wechatOpenid: openid,
+    isDeleted: false
   });
+  let isNewUser = false;
 
-  return sendSuccess(
-    res,
-    {
-      token,
-      user: user.toSafeObject()
-    },
-    '登录成功'
-  );
+  if (!user) {
+    user = await User.findOne({
+      mobile,
+      isDeleted: false
+    });
+
+    if (user && user.wechatOpenid && user.wechatOpenid !== openid) {
+      throw new AppError('该手机号已绑定其他微信账号', 409);
+    }
+  }
+
+  if (!user) {
+    isNewUser = true;
+    user = await User.create({
+      username: buildWechatUsername({ nickname, mobile, openid }),
+      mobile,
+      password: generateWechatUserPassword(),
+      avatar: String(avatar || '').trim(),
+      email: '',
+      wechatOpenid: openid,
+      wechatUnionid: unionid || '',
+      loginType: 'wechat-mini-program',
+      lastLoginAt: new Date()
+    });
+
+    return issueLoginResponse(res, user, '微信登录成功', { isNewUser });
+  }
+
+  if ((user.status || 'active') !== 'active') {
+    throw new AppError('账号已被禁用', 403);
+  }
+
+  if (user.mobile !== mobile) {
+    const existingMobileUser = await User.findOne({
+      _id: { $ne: user._id },
+      mobile,
+      isDeleted: false
+    });
+
+    if (existingMobileUser) {
+      throw new AppError('当前微信手机号已绑定其他账号，请联系管理员处理', 409);
+    }
+
+    user.mobile = mobile;
+  }
+
+  if (!user.wechatOpenid) {
+    user.wechatOpenid = openid;
+  }
+
+  if (unionid && user.wechatUnionid !== unionid) {
+    user.wechatUnionid = unionid;
+  }
+
+  if (!user.username || /^微信用户/.test(user.username)) {
+    user.username = buildWechatUsername({ nickname, mobile, openid });
+  }
+
+  if (!user.avatar && avatar) {
+    user.avatar = String(avatar).trim();
+  }
+
+  user.loginType = 'wechat-mini-program';
+
+  return issueLoginResponse(res, user, '微信登录成功', { isNewUser });
 });
 
 // 方法：forgotPassword，负责当前接口的业务处理。
@@ -172,6 +292,7 @@ const logout = asyncHandler(async (req, res) => {
 module.exports = {
   register,
   login,
+  wechatMiniProgramLogin,
   forgotPassword,
   logout
 };
