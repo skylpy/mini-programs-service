@@ -8,6 +8,7 @@ const { sendSuccess } = require('../utils/response');
 const {
   downloadByKey,
   downloadByUrl,
+  deleteLocalFile,
   getOssPostSignatureData
 } = require('../services/ossService');
 const {
@@ -20,10 +21,12 @@ const {
   uploadResultToOss,
   uploadSourceToOss
 } = require('../services/conversionService');
+const { imageToPdf } = require('../services/imageToPdfService');
 const { getAllowedTargets, conversionGroups } = require('../utils/conversionSupport');
 const { sanitizeBaseName } = require('../utils/storage');
 
 const INLINE_PREVIEW_FORMATS = new Set(['html', 'htm', 'txt', 'csv']);
+const IMAGE_TO_PDF_ACCEPT_MIME_TYPES = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp'];
 
 function splitCsvLine(line = '') {
   const result = [];
@@ -192,6 +195,102 @@ const createConversionByUrl = asyncHandler(async (req, res) => {
     0,
     201
   );
+});
+
+// 方法：imageToPdfConversion，负责处理多张图片生成 PDF。
+const imageToPdfConversion = asyncHandler(async (req, res) => {
+  const files = Array.isArray(req.files) ? req.files : [];
+  const title = String(req.body.title || '').trim();
+
+  if (!files.length) {
+    throw new AppError('请上传至少一张图片', 400);
+  }
+
+  if (files.length > 9) {
+    throw new AppError('最多上传 9 张图片', 400);
+  }
+
+  const hasInvalidMimeType = files.some((file) => !IMAGE_TO_PDF_ACCEPT_MIME_TYPES.includes(String(file.mimetype || '').toLowerCase()));
+
+  if (hasInvalidMimeType) {
+    throw new AppError('仅支持 JPG、JPEG、PNG、WEBP 图片', 400);
+  }
+
+  const record = await Record.create({
+    user: req.user?._id || null,
+    toolType: 'image-to-pdf',
+    sourceFileName: files[0]?.originalname || `共${files.length}张图片`,
+    sourceFilePath: '',
+    sourceFileSize: files.reduce((sum, file) => sum + (Number(file.size) || 0), 0),
+    sourceStorageType: 'upload',
+    sourceUrl: '',
+    sourceKey: '',
+    originalFiles: files.map((file) => ({
+      name: file.originalname || '',
+      url: '',
+      size: Number(file.size) || 0,
+      mimeType: file.mimetype || ''
+    })),
+    targetFormat: 'pdf',
+    targetFileName: '',
+    targetKey: '',
+    targetFilePath: '',
+    downloadUrl: '',
+    pdfUrl: '',
+    pdfKey: '',
+    resultFile: {
+      name: '',
+      url: '',
+      size: 0
+    },
+    errorMessage: '',
+    errorMsg: '',
+    taskType: 'image-to-pdf',
+    status: 'processing'
+  });
+
+  let outputInfo = null;
+  const cleanupTargets = files.map((file) => file.path).filter(Boolean);
+
+  try {
+    outputInfo = await imageToPdf(files, title);
+    cleanupTargets.push(outputInfo.outputPath);
+
+    const uploadResult = await uploadResultToOss({
+      localPath: outputInfo.outputPath,
+      userId: req.user?._id || 'anonymous',
+      fileName: outputInfo.outputFileName,
+      targetFormat: 'pdf'
+    });
+
+    await markRecordSuccess({
+      record,
+      updates: {
+        targetFileName: outputInfo.outputFileName,
+        targetKey: uploadResult.targetKey,
+        pdfKey: uploadResult.pdfKey,
+        pdfUrl: uploadResult.pdfUrl,
+        downloadUrl: uploadResult.downloadUrl,
+        resultFile: {
+          name: outputInfo.outputFileName,
+          url: uploadResult.downloadUrl || uploadResult.pdfUrl,
+          size: outputInfo.size
+        }
+      }
+    });
+
+    return sendSuccess(res, {
+      recordId: record._id,
+      pdfUrl: uploadResult.downloadUrl || uploadResult.pdfUrl,
+      fileName: outputInfo.outputFileName,
+      size: outputInfo.size
+    }, 'PDF生成成功');
+  } catch (error) {
+    await markRecordFail({ record, error });
+    throw error;
+  } finally {
+    await Promise.all(cleanupTargets.map((filePath) => deleteLocalFile(filePath)));
+  }
 });
 
 // 方法：getConversionPdfUrl，负责返回指定记录的 PDF 访问地址。
@@ -378,6 +477,7 @@ module.exports = {
   createConversion,
   createConversionByUrl,
   downloadConvertedFile,
+  imageToPdfConversion,
   getConversionPreview,
   getConversionResult,
   getConversionPdfUrl,

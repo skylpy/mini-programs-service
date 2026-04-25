@@ -6,7 +6,7 @@ const recordSchema = new mongoose.Schema(
     user: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
+      required: false,
       index: true
     },
     toolType: {
@@ -43,6 +43,32 @@ const recordSchema = new mongoose.Schema(
       type: Number,
       default: 0
     },
+    originalFiles: {
+      type: [
+        {
+          name: {
+            type: String,
+            default: '',
+            trim: true
+          },
+          url: {
+            type: String,
+            default: '',
+            trim: true
+          },
+          size: {
+            type: Number,
+            default: 0
+          },
+          mimeType: {
+            type: String,
+            default: '',
+            trim: true
+          }
+        }
+      ],
+      default: []
+    },
     targetFileName: {
       type: String,
       default: '',
@@ -77,6 +103,22 @@ const recordSchema = new mongoose.Schema(
       type: String,
       default: '',
       trim: true
+    },
+    resultFile: {
+      name: {
+        type: String,
+        default: '',
+        trim: true
+      },
+      url: {
+        type: String,
+        default: '',
+        trim: true
+      },
+      size: {
+        type: Number,
+        default: 0
+      }
     },
     finishedAt: {
       type: Date,

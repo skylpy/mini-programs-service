@@ -1,4 +1,5 @@
 const crypto = require('crypto');
+const fs = require('fs');
 const OSS = require('ali-oss');
 const AppError = require('../utils/appError');
 
@@ -178,6 +179,17 @@ const uploadFile = async (localPath, ossKey) => {
   };
 };
 
+// 方法：uploadFileToOSS，负责上传文件并返回 OSS 访问地址。
+const uploadFileToOSS = async (localPath, ossPath) => {
+  const { ossKey } = await uploadFile(localPath, ossPath);
+
+  return {
+    url: getFileUrl(ossKey),
+    name: normalizeOssKey(ossKey).split('/').pop() || '',
+    ossKey
+  };
+};
+
 // 方法：downloadByKey，负责通过 OSS key 下载文件到本地。
 const downloadByKey = async (ossKey, localPath) => {
   const normalizedKey = normalizeOssKey(ossKey);
@@ -308,10 +320,24 @@ const getPostSignatureData = (dirPrefix) => {
   return getOssPostSignatureData(dirPrefix);
 };
 
+// 方法：deleteLocalFile，负责删除本地临时文件。
+const deleteLocalFile = async (filePath) => {
+  if (!filePath) {
+    return;
+  }
+
+  try {
+    await fs.promises.rm(filePath, { recursive: true, force: true });
+  } catch (error) {
+    console.warn('[ossService] delete local file failed:', filePath, error.message);
+  }
+};
+
 // 导出当前模块对外提供的方法集合。
 module.exports = {
   DEFAULT_OSS_CONFIG,
   createClient,
+  deleteLocalFile,
   downloadByKey,
   downloadByUrl,
   getFileUrl,
@@ -322,5 +348,6 @@ module.exports = {
   getPublicUrl,
   getSignedUrl,
   normalizeOssKey,
+  uploadFileToOSS,
   uploadFile
 };
