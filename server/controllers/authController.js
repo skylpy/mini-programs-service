@@ -5,7 +5,7 @@ const asyncHandler = require('../utils/asyncHandler');
 const { sendSuccess } = require('../utils/response');
 const { generateToken } = require('../utils/jwt');
 const { isValidMobile, isValidEmail } = require('../utils/validators');
-const { getMiniProgramSession, getPhoneNumberByCode } = require('../services/wechatService');
+const { getMiniProgramSession, getPhoneNumberByCode, decryptPhoneNumber } = require('../services/wechatService');
 
 function generateWechatUserPassword() {
   return crypto.randomBytes(18).toString('hex');
@@ -133,18 +133,27 @@ const login = asyncHandler(async (req, res) => {
 
 // 方法：wechatMiniProgramLogin，负责当前接口的业务处理。
 const wechatMiniProgramLogin = asyncHandler(async (req, res) => {
-  const { loginCode, phoneCode, nickname, avatar } = req.body;
+  const { loginCode, phoneCode, encryptedData, iv, nickname, avatar } = req.body;
 
   if (!loginCode || !String(loginCode).trim()) {
     throw new AppError('loginCode 必填');
   }
 
-  if (!phoneCode || !String(phoneCode).trim()) {
-    throw new AppError('phoneCode 必填');
+  if (
+    !String(phoneCode || '').trim() &&
+    !(String(encryptedData || '').trim() && String(iv || '').trim())
+  ) {
+    throw new AppError('phoneCode 或 encryptedData+iv 至少提供一组');
   }
 
-  const { openid, unionid } = await getMiniProgramSession(loginCode);
-  const phoneInfo = await getPhoneNumberByCode(phoneCode);
+  const { openid, unionid, sessionKey } = await getMiniProgramSession(loginCode);
+  const phoneInfo = String(phoneCode || '').trim()
+    ? await getPhoneNumberByCode(phoneCode)
+    : decryptPhoneNumber({
+        sessionKey,
+        encryptedData,
+        iv
+      });
   const mobile = String(phoneInfo.purePhoneNumber || phoneInfo.phoneNumber || '').trim();
 
   if (!mobile || !isValidMobile(mobile)) {

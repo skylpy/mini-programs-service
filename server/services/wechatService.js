@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const https = require('https');
 const AppError = require('../utils/appError');
 
@@ -186,7 +187,55 @@ async function getPhoneNumberByCode(phoneCode) {
   return data.phone_info;
 }
 
+function decryptPhoneNumber({ sessionKey, encryptedData, iv }) {
+  const sessionKeyValue = String(sessionKey || '').trim();
+  const encryptedDataValue = String(encryptedData || '').trim();
+  const ivValue = String(iv || '').trim();
+
+  if (!sessionKeyValue || !encryptedDataValue || !ivValue) {
+    throw new AppError('解密微信手机号缺少必要参数', 400);
+  }
+
+  let decodedPayload;
+
+  try {
+    const decipher = crypto.createDecipheriv(
+      'aes-128-cbc',
+      Buffer.from(sessionKeyValue, 'base64'),
+      Buffer.from(ivValue, 'base64')
+    );
+
+    decipher.setAutoPadding(true);
+    decodedPayload = decipher.update(encryptedDataValue, 'base64', 'utf8');
+    decodedPayload += decipher.final('utf8');
+  } catch (error) {
+    throw new AppError('解密微信手机号失败', 400);
+  }
+
+  try {
+    const parsed = JSON.parse(decodedPayload);
+    const { appId } = getWechatConfig();
+
+    if (parsed?.watermark?.appid && parsed.watermark.appid !== appId) {
+      throw new AppError('微信手机号数据校验失败', 400);
+    }
+
+    if (!parsed?.phoneNumber) {
+      throw new AppError('微信手机号数据不完整', 400);
+    }
+
+    return parsed;
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw error;
+    }
+
+    throw new AppError('解析微信手机号数据失败', 400);
+  }
+}
+
 module.exports = {
   getMiniProgramSession,
-  getPhoneNumberByCode
+  getPhoneNumberByCode,
+  decryptPhoneNumber
 };

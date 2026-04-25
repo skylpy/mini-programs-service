@@ -4,7 +4,7 @@ set -euo pipefail
 SERVER_IP="120.79.144.54"
 SERVER_USER="root"
 
-LOCAL_PROJECT_DIR="/Users/a/node_service/mini-programs-node-service"
+LOCAL_PROJECT_DIR="/Users/a/node_service/mini-programs-service"
 APP_DIR_NAME="server"
 
 REMOTE_TMP_TAR="/root/server_upload.tar.gz"
