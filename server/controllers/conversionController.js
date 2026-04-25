@@ -16,7 +16,7 @@ const {
 } = require('../services/conversionService');
 const { getAllowedTargets, conversionGroups } = require('../utils/conversionSupport');
 const { sanitizeBaseName } = require('../utils/storage');
-const { getOssConfig, getPostSignatureData } = require('../services/ossService');
+const { getOssPostSignatureData } = require('../services/ossService');
 
 // 方法：getConversionSupport，负责当前接口的业务处理。
 const getConversionSupport = asyncHandler(async (req, res) => {
@@ -221,30 +221,20 @@ const getConversionResult = asyncHandler(async (req, res) => {
   });
 });
 
-// 方法：getOssSts，负责返回占位版 OSS 直传配置。
+// 方法：getOssSts，负责返回 OSS 表单直传签名数据。
 const getOssSts = asyncHandler(async (req, res) => {
-  const ossConfig = getOssConfig();
-  const userDir = `${ossConfig.sourceDir}/${String(req.user._id)}`;
-  const postSignatureData = getPostSignatureData(userDir);
+  const postSignatureData = getOssPostSignatureData(String(req.user._id));
 
   return sendSuccess(res, {
-    enabled: true,
-    message: 'success',
     accessKeyId: postSignatureData.accessKeyId,
-    signature: postSignatureData.signature,
     policy: postSignatureData.policy,
-    securityToken: postSignatureData.securityToken,
-    expire: postSignatureData.expire,
-    dir: postSignatureData.dir,
+    signature: postSignatureData.signature,
     host: postSignatureData.host,
+    dir: postSignatureData.dir,
+    expire: postSignatureData.expire,
     bucket: postSignatureData.bucket,
-    region: postSignatureData.region,
-    endpoint: postSignatureData.endpoint,
-    sourceDir: ossConfig.sourceDir,
-    pdfDir: ossConfig.pdfDir,
-    signExpire: ossConfig.signExpire,
-    useSignedUrl: ossConfig.useSignedUrl
-  });
+    region: postSignatureData.region
+  }, 'success');
 });
 
 // 方法：downloadConvertedFile，负责当前接口的业务处理。

@@ -1,5 +1,4 @@
 const crypto = require('crypto');
-const path = require('path');
 const OSS = require('ali-oss');
 const AppError = require('../utils/appError');
 
@@ -35,6 +34,46 @@ const normalizeOssKey = (ossKey) => {
   return String(ossKey || '')
     .trim()
     .replace(/^\/+/, '');
+};
+
+// 方法：ensureTrailingSlash，负责统一补齐目录尾部斜杠。
+const ensureTrailingSlash = (dir) => {
+  const normalizedDir = normalizeOssKey(dir);
+
+  if (!normalizedDir) {
+    return '';
+  }
+
+  return normalizedDir.endsWith('/') ? normalizedDir : `${normalizedDir}/`;
+};
+
+// 方法：getMaxFileSizeBytes，负责读取上传文件大小限制。
+const getMaxFileSizeBytes = () => {
+  const maxFileSizeMb = Number(process.env.MAX_FILE_SIZE_MB) || 20;
+  return maxFileSizeMb * 1024 * 1024;
+};
+
+// 方法：resolvePostUploadDir，负责确保表单上传目录固定在 source/ 下。
+const resolvePostUploadDir = (dirPrefix, sourceDir) => {
+  const normalizedSourceDir = normalizeOssKey(sourceDir);
+  const normalizedDirPrefix = normalizeOssKey(dirPrefix);
+
+  if (!normalizedSourceDir) {
+    throw new AppError('OSS_SOURCE_DIR 未配置，无法生成上传目录', 500);
+  }
+
+  if (!normalizedDirPrefix) {
+    return ensureTrailingSlash(normalizedSourceDir);
+  }
+
+  if (
+    normalizedDirPrefix === normalizedSourceDir ||
+    normalizedDirPrefix.startsWith(`${normalizedSourceDir}/`)
+  ) {
+    return ensureTrailingSlash(normalizedDirPrefix);
+  }
+
+  return ensureTrailingSlash(`${normalizedSourceDir}/${normalizedDirPrefix}`);
 };
 
 // 方法：getOssConfig，负责读取 OSS 配置。
@@ -225,8 +264,8 @@ const buildPostPolicy = ({ dir, expireAt }) => {
   const policyObject = {
     expiration: new Date(expireAt).toISOString(),
     conditions: [
-      ['starts-with', '$key', normalizeOssKey(dir)],
-      ['content-length-range', 0, (Number(process.env.MAX_FILE_SIZE_MB) || 20) * 1024 * 1024]
+      ['starts-with', '$key', ensureTrailingSlash(dir)],
+      ['content-length-range', 0, getMaxFileSizeBytes()]
     ]
   };
 
@@ -238,13 +277,13 @@ const signPostPolicy = (policy, accessKeySecret) => {
   return crypto.createHmac('sha1', accessKeySecret).update(policy).digest('base64');
 };
 
-// 方法：getPostSignatureData，负责生成前端直传 OSS 所需参数。
-const getPostSignatureData = (dirPrefix) => {
+// 方法：getOssPostSignatureData，负责生成前端直传 OSS 所需参数。
+const getOssPostSignatureData = (dirPrefix) => {
   const config = getOssConfig();
   assertOssCredentials(config);
 
-  const normalizedDir = normalizeOssKey(dirPrefix || config.sourceDir);
-  const expireSeconds = config.signExpire;
+  const normalizedDir = resolvePostUploadDir(dirPrefix, config.sourceDir);
+  const expireSeconds = Number(config.signExpire) || DEFAULT_OSS_CONFIG.signExpire;
   const expireAt = Date.now() + expireSeconds * 1000;
   const policy = buildPostPolicy({
     dir: normalizedDir,
@@ -256,14 +295,17 @@ const getPostSignatureData = (dirPrefix) => {
     accessKeyId: config.accessKeyId,
     policy,
     signature,
-    securityToken: process.env.OSS_SECURITY_TOKEN ? String(process.env.OSS_SECURITY_TOKEN).trim() : '',
     expire: Math.floor(expireAt / 1000),
     dir: normalizedDir,
     host: getUploadHost(),
     bucket: config.bucket,
-    region: config.region,
-    endpoint: config.endpoint
+    region: config.region
   };
+};
+
+// 方法：getPostSignatureData，负责兼容旧调用方式。
+const getPostSignatureData = (dirPrefix) => {
+  return getOssPostSignatureData(dirPrefix);
 };
 
 // 导出当前模块对外提供的方法集合。
@@ -275,6 +317,7 @@ module.exports = {
   getFileUrl,
   getObjectKeyFromUrl,
   getOssConfig,
+  getOssPostSignatureData,
   getPostSignatureData,
   getPublicUrl,
   getSignedUrl,
