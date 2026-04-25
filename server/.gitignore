@@ -1,6 +1,10 @@
+################################
+# 0. 原有基础规则
+################################
 node_modules/
 .env
 npm-debug.log*
+
 storage/*
 !storage/uploads/
 !storage/converted/
@@ -28,17 +32,52 @@ pnpm-debug.log*
 ################################
 logs/
 *.log
+mongodb.log
+.run/mongodb.log
+.runtime/mongodb.log
 
 ################################
 # 4. MongoDB / 运行时数据（你这次报错的元凶）
 ################################
 runtime/
+.runtime/
+.run/
+
 mongodb/
 data/
 *.wt
 *.lock
+*.seeded
 WiredTiger*
 journal/
+
+# MongoDB 子目录数据
+**/mongodb/
+**/mongodb/data/
+**/mongodb/data/**
+**/mongodb/log/
+**/mongodb/log/**
+**/mongodb/journal/
+**/mongodb/journal/**
+**/mongodb/data/journal/
+**/mongodb/data/journal/**
+
+# MongoDB 常见运行文件
+**/mongod.lock
+**/storage.bson
+**/sizeStorer.wt
+**/_mdb_catalog.wt
+**/WiredTiger
+**/WiredTiger.lock
+**/WiredTiger.turtle
+**/WiredTiger.wt
+**/WiredTigerHS.wt
+**/WiredTigerPreplog.*
+**/WiredTigerLog.*
+**/collection-*.wt
+**/index-*.wt
+**/diagnostic.data/
+**/diagnostic.data/**
 
 ################################
 # 5. 上传文件（避免占满仓库）
@@ -75,3 +114,8 @@ Thumbs.db
 *.pid
 *.seed
 *.tgz
+*.tar.gz
+*.zip
+server_upload.tar.gz
+server_backup_*/
+backup_*/

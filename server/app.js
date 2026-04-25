@@ -9,6 +9,7 @@ const userRoutes = require('./routes/userRoutes');
 const bannerRoutes = require('./routes/bannerRoutes');
 const recordRoutes = require('./routes/recordRoutes');
 const browseHistoryRoutes = require('./routes/browseHistoryRoutes');
+const downloadHistoryRoutes = require('./routes/downloadHistoryRoutes');
 const feedbackRoutes = require('./routes/feedbackRoutes');
 const faqRoutes = require('./routes/faqRoutes');
 const templateRoutes = require('./routes/templateRoutes');
@@ -61,6 +62,8 @@ app.use('/api/banners', bannerRoutes);
 app.use('/api/records', recordRoutes);
 // 挂载模块路由：/api/browse-history。
 app.use('/api/browse-history', browseHistoryRoutes);
+// 挂载模块路由：/api/download-history。
+app.use('/api/download-history', downloadHistoryRoutes);
 // 挂载模块路由：/api/feedback。
 app.use('/api/feedback', feedbackRoutes);
 // 挂载模块路由：/api/faqs。
@@ -82,10 +85,23 @@ app.use(errorMiddleware);
 // 方法：startServer，负责异步处理当前业务步骤。
 const startServer = async () => {
   try {
-    await connectDB();
+    let databaseConnected = false;
+
+    try {
+      await connectDB();
+      databaseConnected = true;
+    } catch (error) {
+      if (NODE_ENV === 'production') {
+        throw error;
+      }
+
+      console.warn('Database unavailable in development, continuing without DB:', error.message);
+    }
 
     const server = app.listen(PORT, () => {
-      console.log(`Server running in ${NODE_ENV} (${SERVER_TARGET}) on port ${PORT}`);
+      console.log(
+        `Server running in ${NODE_ENV} (${SERVER_TARGET}) on port ${PORT}${databaseConnected ? '' : ' [DB unavailable]'}`
+      );
     });
 
     server.on('error', (error) => {
